@@ -9,7 +9,6 @@ const DATE_FORMAT: &str = "%Y/%m/%d %H:%M:%S";
 
 fn main() {
     let (tx, rx) = channel();
-
     let mut watcher = match watcher(tx, Duration::from_secs(1)) {
         Ok(watcher) => watcher,
         Err(e) => {
@@ -17,40 +16,35 @@ fn main() {
             return;
         }
     };
-
     if let Err(e) = watcher.watch("/Volumes/T7", RecursiveMode::Recursive) {
         eprintln!("{} Error watching directory: {:?}", get_formatted_time(), e);
         return;
     }
-
     println!("Watching for changes...");
-
     loop {
         match rx.recv() {
             Ok(event) => match event {
                 DebouncedEvent::Create(path)
                 | DebouncedEvent::Write(path)
-                | DebouncedEvent::Rename(_, path) => remove_resource_forks(&path),
+                | DebouncedEvent::Rename(_, path) => {
+                    if let Some(dir_path) = path.parent() {
+                        if let Ok(entries) = fs::read_dir(dir_path) {
+                            for entry in entries {
+                                if let Ok(entry) = entry {
+                                    if let Some(file_name) = entry.file_name().to_str() {
+                                        if file_name.starts_with("._") {
+                                            remove_files_with_prefix(dir_path, "._").unwrap();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => (),
             },
             Err(e) => eprintln!("{} Watcher error: {:?}", get_formatted_time(), e),
-        }
-    }
-}
-
-fn remove_resource_forks(folder_path: &Path) {
-    if let Some(dir_path) = folder_path.parent() {
-        match remove_files_with_prefix(dir_path, "._") {
-            Ok(_) => println!(
-                "{} Removed resource forks: {:?}",
-                get_formatted_time(),
-                dir_path
-            ),
-            Err(err) => eprintln!(
-                "{} Failed to remove resource forks: {:?}",
-                get_formatted_time(),
-                err
-            ),
         }
     }
 }
